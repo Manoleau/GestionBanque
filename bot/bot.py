@@ -1,24 +1,32 @@
 import asyncio
 import logging
+
 import discord
 from discord.ext import commands
+
 from .config import get_config
 from .db import Database
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 class MyBot(commands.Bot):
     def __init__(self, config, db: Database):
         intents = discord.Intents.default()
-        intents.message_content = True  # needed for reading message content in commands
+        intents.message_content = True
         super().__init__(command_prefix=config.prefix, intents=intents)
         self.config = config
         self.db = db
 
     async def setup_hook(self):
-        from .cogs.notes import Notes
-        await self.add_cog(Notes(self))
+        from .cogs.budget import Budget
+        await self.add_cog(Budget(self))
+        try:
+            await self.tree.sync()
+            logger.info("App commands synchronized.")
+        except Exception as e:
+            logger.exception("Failed to sync app commands: %s", e)
         logger.info("Cogs loaded.")
 
     async def on_ready(self):
@@ -31,10 +39,6 @@ def run():
     db = Database(config.database)
 
     bot = MyBot(config, db)
-
-    @bot.command()
-    async def ping(ctx: commands.Context):
-        await ctx.reply("Pong!")
 
     async def main():
         async with bot:

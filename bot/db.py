@@ -1,13 +1,11 @@
-import aiosqlite
 from typing import Optional
 
+import aiosqlite
+
 INIT_SQL = """
-CREATE TABLE IF NOT EXISTS user_notes (
-    user_id TEXT NOT NULL,
-    note TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+-- Budget-related tables are created by the budget cog on_ready via executescript.
 """
+
 
 class Database:
     def __init__(self, path: str):
@@ -31,17 +29,3 @@ class Database:
         if not self._conn:
             raise RuntimeError("Database is not connected. Call connect() first.")
         return self._conn
-
-    async def add_note(self, user_id: int, note: str):
-        await self.conn.execute(
-            "INSERT INTO user_notes (user_id, note) VALUES (?, ?)",
-            (str(user_id), note),
-        )
-        await self.conn.commit()
-
-    async def list_notes(self, user_id: int):
-        async with self.conn.execute(
-            "SELECT note, created_at FROM user_notes WHERE user_id = ? ORDER BY created_at DESC",
-            (str(user_id),),
-        ) as cursor:
-            return await cursor.fetchall()
