@@ -136,9 +136,15 @@ class Expense:
 class BudgetService:
     def __init__(self, conn: aiosqlite.Connection):
         self.conn = conn
+        self._last_subscription_charge_date: Optional[str] = None
 
     async def ensure_schema(self) -> None:
         await self.conn.executescript(SCHEMA_SQL)
+        await self.conn.commit()
+        # Also ensure table to track last charges per user
+        await self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS subscription_charges (user_id TEXT PRIMARY KEY, last_charge_date DATE NOT NULL)"
+        )
         await self.conn.commit()
 
     async def set_reminder_pref(self, user_id: int | str, mode: str, channel_id: int | str | None = None) -> None:
@@ -247,6 +253,39 @@ class BudgetService:
         )
         await self.conn.commit()
         return await self.get_balance(user_id)
+
+    async def apply_due_subscriptions_for_today(self) -> None:
+        """Deducts subscription amounts from balances for users whose subscriptions are due today.
+        Idempotent per day using subscription_charges table.
+        """
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).date()
+        # For each user with active subscriptions due today, sum amounts and subtract from balance once a day.
+        async with self.conn.execute(
+            "SELECT user_id, SUM(amount_cents) FROM subscriptions WHERE active=1 AND day_of_month=? GROUP BY user_id",
+            (int(today.day),),
+        ) as cur:
+            rows = await cur.fetchall()
+        for user_id, total_cents in rows:
+            # check if already charged today
+            async with self.conn.execute(
+                "SELECT last_charge_date FROM subscription_charges WHERE user_id=?",
+                (str(user_id),),
+            ) as c2:
+                row = await c2.fetchone()
+            if row and row[0] == today.isoformat():
+                continue
+            # subtract
+            await self.conn.execute(
+                "INSERT INTO balances(user_id, balance_cents) VALUES (?, 0) ON CONFLICT(user_id) DO UPDATE SET balance_cents=balance_cents-?",
+                (str(user_id), int(total_cents) if total_cents is not None else 0),
+            )
+            # upsert last charge date
+            await self.conn.execute(
+                "INSERT INTO subscription_charges(user_id, last_charge_date) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET last_charge_date=excluded.last_charge_date",
+                (str(user_id), today.isoformat()),
+            )
+        await self.conn.commit()
 
     async def remaining_for_month(self, user_id: int | str, today: Optional[date] = None) -> Tuple[
         int, list[tuple[str, int, int]], list[tuple[str, int, str]]]:

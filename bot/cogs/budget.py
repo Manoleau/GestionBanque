@@ -270,11 +270,19 @@ class Budget(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         delta = parse_amount_to_cents(amount)
         new_balance = await self.service.sub_from_balance(interaction.user.id, delta)
-        await interaction.followup.send(f"Solde mis à jour: {format_cents(new_balance)}", ephemeral=True)
+        emb = self._embed(title="Solde mis à jour", description=format_cents(new_balance), color=self.SUCCESS_COLOR)
+        await interaction.followup.send(embed=emb, ephemeral=True)
 
     @tasks.loop(minutes=1)
     async def reminder_task(self):
         now = datetime.now()
+        # Apply automatic subscription deductions at 00:05 to avoid rate limits and ensure once per day
+        if now.minute == 5 and now.hour == 0:
+            try:
+                await self.service.ensure_schema()
+                await self.service.apply_due_subscriptions_for_today()
+            except Exception:
+                pass
         if now.minute != 0 or now.hour != 8:
             return
         prefs = await self.service.list_reminder_prefs()
