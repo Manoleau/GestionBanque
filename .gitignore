@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+bot.db
+
+# Virtual envs
+.env/
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
